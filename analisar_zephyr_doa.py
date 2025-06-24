@@ -1,45 +1,48 @@
+import argparse
 from pydriller import Repository
 import pandas as pd
 import matplotlib.pyplot as plt
 from collections import defaultdict
+from itertools import islice
 
-# Caminho ou URL do repositório
-REPO_URL = "https://github.com/zephyrproject-rtos/zephyr"
+parser = argparse.ArgumentParser(description="Análise rápida de autoria no Zephyr RTOS")
+parser.add_argument('--repo', required=True, help="Caminho local do repositório Zephyr")
+parser.add_argument('--commits', type=int, default=None, help="Limite de commits (ex: 500)")
+args = parser.parse_args()
 
-# Filtros por diretório e extensão
-DIRS_INTERESSE = ['kernel/', 'arch/']
+REPO_PATH = args.repo
+COMMIT_LIMITE = args.commits
+
+DIRS_INTERESSE = ['kernel/']
 EXTENSOES = ('.c', '.cpp')
-
-# Armazenamento de dados
-dados = defaultdict(lambda: defaultdict(int))  # dados[arquivo][autor]
-original_author = {}  # dados[arquivo] = autor original
+dados = defaultdict(lambda: defaultdict(int))
+original_author = {}
 modificacoes_outros = defaultdict(int)
 
-print("🔍 Analisando commits...")
-
-for commit in Repository(REPO_URL).traverse_commits():
+print("🔍 Analisando repositório:", REPO_PATH)
+repo_iter = Repository(REPO_PATH).traverse_commits()
+if COMMIT_LIMITE is not None:
+    repo_iter = islice(repo_iter, COMMIT_LIMITE)
+for commit in repo_iter:
     autor = commit.author.name
-
     for arquivo in commit.modified_files:
         caminho = arquivo.new_path
         if not caminho:
             continue
-
-        if caminho.endswith(EXTENSOES) and any(d in caminho for d in DIRS_INTERESSE):
+        if caminho.endswith(EXTENSOES) and any(caminho.startswith(d) for d in DIRS_INTERESSE):
             if caminho not in original_author:
                 original_author[caminho] = autor
             if autor != original_author[caminho]:
                 modificacoes_outros[caminho] += 1
             dados[caminho][autor] += 1
 
-# Cálculo do DOA simplificado
 doa_resultado = []
-
 for arquivo, autores in dados.items():
+    penalidade = 0.1 * modificacoes_outros[arquivo]
     for autor, n_commits in autores.items():
         doa = (1.0 if autor == original_author[arquivo] else 0.0)
         doa += 0.5 * n_commits
-        doa -= 0.1 * modificacoes_outros[arquivo]
+        doa -= penalidade
         doa_resultado.append({
             'arquivo': arquivo,
             'autor': autor,
@@ -49,29 +52,53 @@ for arquivo, autores in dados.items():
 
 df_doa = pd.DataFrame(doa_resultado)
 
-# 🔝 Top 10 autores por DOA
-print("\n📊 Top 10 autores por DOA:")
-print(df_doa.groupby('autor')['doa'].sum().sort_values(ascending=False).head(10))
+print("\n📊 Top 5 autores por DOA:")
+print(df_doa.groupby('autor')['doa'].sum().sort_values(ascending=False).head(5))
 
-# 📈 Gráfico de commits por autor
-plt.figure(figsize=(10, 5))
+plt.figure(figsize=(10, 4))
 df_doa.groupby('autor')['commits'].sum().sort_values(ascending=False).head(10).plot(kind='bar', color='skyblue')
-plt.title('Top 10 Desenvolvedores - Commits nos arquivos núcleo')
+plt.title('Top 10 Desenvolvedores (Últimos Commits)')
 plt.ylabel('Commits')
 plt.xlabel('Autor')
 plt.tight_layout()
 plt.savefig("grafico_commits_autores.png")
 plt.close()
 
-# 📈 Gráfico de DOA por arquivo
 plt.figure(figsize=(12, 6))
-df_doa.groupby('arquivo')['doa'].max().sort_values(ascending=False).head(15).plot(kind='barh', color='salmon')
-plt.title('Arquivos com maior grau de autoria (DOA)')
+df_doa.groupby('arquivo')['doa'].max().sort_values(ascending=False).head(10).plot(kind='barh', color='lightgreen')
+plt.title('Arquivos com Maior DOA')
 plt.xlabel('DOA')
 plt.tight_layout()
 plt.savefig("grafico_doa_arquivos.png")
 plt.close()
 
-print("\n✅ Análise concluída. Gráficos salvos:")
+# Gerar tabela resumo
+resumo = []
+for autor in df_doa['autor'].unique():
+    df_autor = df_doa[df_doa['autor'] == autor]
+    commits_total = df_autor['commits'].sum()
+    # Top 2 módulos/arquivos mais atuantes
+    mais_atuantes = (
+        df_autor.groupby('arquivo')['commits']
+        .sum()
+        .sort_values(ascending=False)
+        .head(2)
+        .index.tolist()
+    )
+    resumo.append({
+        'Desenvolvedor': autor,
+        'Commits no núcleo': commits_total,
+        'Módulos mais atuantes': ', '.join(mais_atuantes)
+    })
+
+df_resumo = pd.DataFrame(resumo)
+df_resumo = df_resumo.sort_values('Commits no núcleo', ascending=False).head(10)
+
+print("\n| Desenvolvedor     | Commits no núcleo | Módulos mais atuantes        |")
+print("|-------------------|-------------------|-------------------------------|")
+for _, row in df_resumo.iterrows():
+    print(f"| {row['Desenvolvedor']:<18} | {row['Commits no núcleo']:<17} | {row['Módulos mais atuantes']:<30} |")
+
+print("\n✅ Análise concluída.")
 print(" - grafico_commits_autores.png")
 print(" - grafico_doa_arquivos.png")
