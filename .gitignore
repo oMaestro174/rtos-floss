@@ -1,0 +1,33 @@
+# Ignorar ambiente virtual Python
+venv/
+.env/
+.env*/  # cobre .env, .env.bak, etc.
+
+# Ignorar arquivos Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignorar notebooks convertidos
+.ipynb_checkpoints/
+
+# Ignorar arquivos temporários de editor
+*.swp
+*.swo
+*.bak
+
+# Ignorar pastas de IDEs
+.vscode/
+.idea/
+
+# Ignorar arquivos de pacotes Python
+*.egg-info/
+dist/
+build/
+
+# Ignorar arquivos de log
+*.log
+# outras pastas
+zephyr/
+zephyr-env
